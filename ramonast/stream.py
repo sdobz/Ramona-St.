@@ -1,5 +1,9 @@
 #!/usr/bin/env python
+<<<<<<< HEAD
 import os, library.web as web, subprocess
+=======
+import os, library.web, subprocess
+>>>>>>> helpme
 from struct import pack, unpack, calcsize
 from cStringIO import StringIO
 from pprint import pprint

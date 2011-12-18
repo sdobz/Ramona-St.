@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import os, library.web as web, subprocess
+import os, library.web, subprocess
 from struct import pack, unpack, calcsize
 from cStringIO import StringIO
 from pprint import pprint
@@ -14,7 +14,7 @@ from re import compile
 
 mediaroot="/var/media"
 chunksize=10000
-rate=0
+rate=50000
 debug=True
 
 # Time until the ffmpeg instance expires
@@ -37,14 +37,22 @@ defaults={
 
 class stream:
 	def GET(self,request):
-		args=defaults.copy()
 		qargs=get_queryparsed()
 		
-		for key, value in qargs:
-			if(checks[key].match(value)==None):
+		request=request.split("/")
+		if('start' in qargs):
+			# Prepend the start parameter into the default args parsing
+			request.insert(0,qargs['start'])
+			request.insert(0,'start')
+		
+		args=defaults.copy()
+		while(request[0] in args and len(request)>1):
+			arg=request.pop(0)
+			value=request.pop(0)
+			if(checks[arg].match(value)==None):
 				raise web.notfound("Argument: %s contains an invalid format" % (escape(arg)))
-				args[arg] = value
-		filename=os.path.normpath(os.path.join("/var/media/",request))
+			args[arg] = value
+		filename=os.path.normpath(os.path.join("/var/media/",*request))
 
 		if(filename[:len(mediaroot)]!=mediaroot):
 			raise web.notfound("You cannot go up directories.")
@@ -66,8 +74,8 @@ class stream:
 			while chunk:
 				chunk=s.getchunk(chunksize)
 				yield chunk
-				if(rate!=0):
-					sleep(float(chunksize)/rate)
+				#if(rate!=0):
+				#	sleep(float(chunksize)/rate)
 		else:
 			raise web.notfound("File: %s not found." % (filename))
 	
