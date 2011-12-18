@@ -8,6 +8,15 @@ from random import random
 
 port = 7979
 
+from library.web.template import render as make_renderer
+render = make_renderer('templates/appcontrol')
+from index import render as index_render
+
+
+class appcontrol:
+	def GET(self,action):
+		return index_render.index(render.head(),render.body())
+
 def action(app,action,block=False):
 	log("=== NEW ACTION")
 	if not (app in apps):
