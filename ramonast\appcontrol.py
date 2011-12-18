@@ -2,23 +2,11 @@
 
 # As of 12/17/11 this module does NOT work, and doesn't conform to RamonaSt
 # module format. Will be updated later --sdobz
-import library.web.template.render as make_renderer
+
 import os, subprocess, time, xmlrpclib
 from random import random
 
 port = 7979
-
-render = make_renderer('templates/appcontrol')
-
-class app:
-	def GET(self,action):
-		part=action.partition("/")
-		if(part[1] == "/"):
-			action=part[2]
-			app=part[0]
-			return action(app,action)
-		else:
-			return render.index()
 
 def action(app,action,block=False):
 	log("=== NEW ACTION")
