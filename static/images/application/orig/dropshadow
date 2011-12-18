@@ -1,5 +1,0 @@
-#!/bin/sh
-for f in *.png
-do convert $f -resize 140x140 \( +clone -background black -shadow 60×2+5+5 \) +swap -background transparent -layers merge +repage -gravity center -extent 150x150  ../$f
-# convert ../$f -threshold 100% ../mask_$f
-done
