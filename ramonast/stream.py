@@ -89,7 +89,7 @@ class streamer:
 		self.offset=0
 	
 	def makeffmpeg(self):
-		ffmpegargs=("ffmpeg -ss "+str(0)+" -i golfers.flv -async 1 -b "+"1000k"+" -s "+"640x480"+" -ar 44100 -ac 2 -v 0 -f flv -vcodec libx264 -preset superfast -threads 1 -").split()
+		ffmpegargs=("ffmpeg -ss "+str(0)+" -i /var/media/golfers.flv -async 1 -b "+"1000k"+" -s "+"640x480"+" -ar 44100 -ac 2 -v 0 -f flv -vcodec libx264 -preset superfast -threads 1 -").split()
 		self.kill()
 
 		self.ffmpeg=subprocess.Popen(ffmpegargs,stderr=stderr,stdout=subprocess.PIPE)
@@ -156,7 +156,7 @@ class flvmetainjector:
 				
 	def verifyheader(self,header):
 		if(len(header)!=13):
-			raise BaseException, 'FLVError: no data read'
+			raise 'FLVError'
 		unpacked=unpack('>3s B B I I',header)
 		FLVsignature=unpacked[0]
 		#d("Sig: ",FLVsignature)
@@ -443,8 +443,7 @@ class flvmetainjector:
 		datasize = [(size & 0b111111110000000000000000) >> 16,
 				    (size & 0b000000001111111100000000) >> 8,
 				    (size & 0b000000000000000011111111)]
-		# Merge items into one list then unpack it
-		header = pack('>B 3B 3B B 3B',flags,*list(datasize+timestamp+[timestamp0]+streamid))
+		header = pack('>B 3B 3B B 3B',flags,*datasize,*timestamp,timestamp0,*streamid)
 		
 		return header + body + pack('>I',len(header+body))
 		
@@ -502,7 +501,7 @@ class flvmetainjector:
 					
 		return pack('>B',type) + result
 	
-	def writescriptdatastring(self,data):
+	def writescriptdatastring(self,data)
 		StringLength = len(data)
 		return pack('>H '+str(StringLength)+'s',StringLength, data)
 	
@@ -548,4 +547,4 @@ def d(*args):
 
 if(__name__=="__main__"):
 	s=flvmetainjector()
-	s.injectstart(5000)
+	s.injectstart()
