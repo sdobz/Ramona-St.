@@ -38,17 +38,9 @@ defaults={
 class stream:
 	def GET(self,request):
 		qargs=get_queryparsed()
-		
-		request=request.split("/")
-		if('start' in qargs):
-			# Prepend the start parameter into the default args parsing
-			request.insert(0,qargs['start'])
-			request.insert(0,'start')
-		
 		args=defaults.copy()
-		while(request[0] in args and len(request)>1):
-			arg=request.pop(0)
-			value=request.pop(0)
+		
+		for arg, value in qargs:
 			if(checks[arg].match(value)==None):
 				raise web.notfound("Argument: %s contains an invalid format" % (escape(arg)))
 			args[arg] = value
@@ -78,10 +70,7 @@ class stream:
 				#	sleep(float(chunksize)/rate)
 		else:
 			raise web.notfound("File: %s not found." % (filename))
-	
 
-	def _close(*args):
-		print(args)
 
 def get_queryparsed():
 	values = {}
@@ -148,6 +137,7 @@ class flvmetainjector:
 			tag, chunk = self.readtag()
 			if('ScriptDataName' in tag and tag['ScriptDataName']=='onMetaData'):
 				self.injected=True
+				d(tag)
 				
 				data+=chunk
 			else:
@@ -219,8 +209,6 @@ class flvmetainjector:
 		# 5: 3 byte StreamID
 		
 		tag={}
-		tag['PrevTagSize']=u[0]
-		
 		tag['Reserved']=(u[1] & 0b11000000) >> 6
 		tag['Filter']  =(u[1] & 0b00100000) >> 5
 		tag['TagType'] =(u[1] & 0b00011111)
@@ -398,7 +386,7 @@ class flvmetainjector:
 		return tag
 	
 	def parsescriptdatastring(self,strf):
-		StringLength = unpack('>H',strf.read(2))[0]
+		StringLength = quickread('>H',strf)
 		if(StringLength==0):
 			return ''
 		return strf.read(StringLength)
@@ -414,6 +402,119 @@ class flvmetainjector:
 			properties[key]=value
 		return properties
 	
+	def writetag(self,tag):
+		if(tag['TagType']!=18):
+			raise 'Cannot write non-scriptdata tags'
+		
+		if(tag['Reserved'] <= 0b11):
+			flags=tag['Reserved'] << 6
+		else:
+			raise BaseExceptions, 'FLVError: reserved too large'
+		if(tag['Filter'] <= 0b1):
+			flags+=tag['Filter'] << 5
+		else:
+			raise BaseExceptions, 'FLVError: filter not 0 or 1'
+		if(tag['TagType'] <= 0b11111):
+			flags+=tag['TagType']
+		else:
+			raise BaseExceptions, 'FLVError: tagtype too large'
+		
+		# Design the int
+		stamp=tag['TimeStamp']
+		if(stamp>=0x80000000):
+			stamp-=0x100000000
+		# This number is a signed 32 bit, led by the additional timestamp byte
+		timestamp0 = (stamp & 0b11111111000000000000000000000000) >> 24
+		timestamp  =[(stamp & 0b00000000111111110000000000000000) >> 16,
+			         (stamp & 0b00000000000000001111111100000000) >> 8,
+		             (stamp & 0b00000000000000000000000011111111)]
+
+		
+		streamid =[(tag['StreamID'] & 0b111111110000000000000000) >> 16,
+		           (tag['StreamID'] & 0b000000001111111100000000) >> 8,
+		           (tag['StreamID'] & 0b000000000000000011111111)]
+		
+		# Write scriptdata name and data
+		body = self.writescriptdatavalue({'Type':2,'Data':tag['ScriptDataName']})
+		body += self.writescriptdatavalue(tag['ScriptDataValue'])
+		size = len(body)
+		
+		# This converts a 24 bit int to 3 1 byte chunks
+		datasize = [(size & 0b111111110000000000000000) >> 16,
+				    (size & 0b000000001111111100000000) >> 8,
+				    (size & 0b000000000000000011111111)]
+		header = pack('>B 3B 3B B 3B',flags,*datasize,*timestamp,timestamp0,*streamid)
+		
+		return header + body + pack('>I',len(header+body))
+		
+	def writescriptdatavalue(self,data):
+		type=data['Type']
+		data=data['Data']
+		
+		result = ''
+		
+		# 0 - Number (double)
+		if(type==0):
+			result = pack('>d',data)
+			
+		# 1 - Boolean (1 byte int !=0)
+		if(type==1):
+			result = pack('>B',data!=0)
+			
+		# 2 - String
+		if(type==2):
+			result = self.writescriptdatastring(data)
+		
+		# 3 - Data Object
+		if(type==3):
+			result = self.writescriptdataobject(data)
+		
+		# 4 - MovieClip - Not implemented
+		# 5 - Null
+		# 6 - Undefined
+		# 7 - Reference
+		if(type==7):
+			result = pack('>H',data)
+		
+		# 8 - ECMA Array
+		if(type==8):
+			# This value is approximate? Weh?
+			result = pack('>I',len(data)) + self.parsescriptdataobject(data)
+		
+		# 9 - Object end marker, only need to return type
+		# 10 - Strict Array
+		if(type==10):
+			result += pack('>H',len(data))
+			
+			for i in range(0,ArrayLength):
+				result += self.writescriptdatavalue(data[i])
+		
+		# 11 - Date
+		if(type==11):
+			# Double, signed short
+			result = pack('>d h',data['DateTime'],data['LocalDateTimeOffset'])
+		
+		# 12 - Long String - Same as a string, except use 4 bytes instead of 2
+		if(type==12):
+			StringLength = len(data)
+			result = pack('>I '+str(StringLength)+'s',StringLength, data)
+					
+		return pack('>B',type) + result
+	
+	def writescriptdatastring(self,data)
+		StringLength = len(data)
+		return pack('>H '+str(StringLength)+'s',StringLength, data)
+	
+	def writescriptdataobject(self,data):
+		result=''
+		for key,value in data:
+			result += self.writescriptdatastring(key)
+			result += self.writescriptdatavalue(value)
+		
+		result += self.writescriptdatastring('')
+		result += self.writescriptdatavalue({'Type':9})
+		return result
+
 for k in checks:
 	checks[k]=compile("^"+checks[k]+"$")
 
@@ -446,4 +547,4 @@ def d(*args):
 
 if(__name__=="__main__"):
 	s=flvmetainjector()
-	s.getchunk(1000)
+	s.injectstart()
