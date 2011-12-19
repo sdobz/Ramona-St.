@@ -198,31 +198,30 @@ class flvmetainjector:
 	def readtag(self):
 		# Note: I am not sure on my handling of timestamp values larger than 24 bits
 		# (16 777 215 / 1 000) / 60 = 279.62025 minutes
-		# Should be a 4 byte previous tag length and 11 bytes of tag header
-		data=self.read(4+11)
+		data=self.read(11)
 		u=unpack('>B 3B 3B B 3B',data)
-		#          1 2  3  4 5
-		# 1: 2 bit reserved, 1 bit filter, 5 bit tag type
-		# 2: 3 byte DataSize
-		# 3: 3 byte Timestamp (ms)
-		# 4: 1 byte Additional timestamp byte? wtf?
-		# 5: 3 byte StreamID
+		#          0 1  2  3 4
+		# 0: 2 bit reserved, 1 bit filter, 5 bit tag type
+		# 1: 3 byte DataSize
+		# 2: 3 byte Timestamp (ms)
+		# 3: 1 byte Additional timestamp byte? wtf?
+		# 4: 3 byte StreamID
 		
 		tag={}
-		tag['Reserved']=(u[1] & 0b11000000) >> 6
-		tag['Filter']  =(u[1] & 0b00100000) >> 5
-		tag['TagType'] =(u[1] & 0b00011111)
+		tag['Reserved']=(u[0] & 0b11000000) >> 6
+		tag['Filter']  =(u[0] & 0b00100000) >> 5
+		tag['TagType'] =(u[0] & 0b00011111)
 		
 		# This converts 3 bytes into a 24 bit unsigned int
-		tag['DataSize'] =(u[2] << 16) + (u[3] << 8) + u[4]
+		tag['DataSize'] =(u[1] << 16) + (u[2] << 8) + u[3]
 		
 		# This number is a signed 32 bit, led by the additional timestamp bit
-		tag['TimeStamp']=(u[8] << 24) + (u[5] << 16) + (u[6] << 8) + u[7]
+		tag['TimeStamp']=(u[7] << 24) + (u[4] << 16) + (u[5] << 8) + u[6]
 		# Tests against '0b1000...'
 		if(tag['TimeStamp']>=0x80000000):
 			tag['TimeStamp']-=0x100000000
 		
-		tag['StreamID'] =(u[9] << 16) + (u[10] << 8) + u[11]
+		tag['StreamID'] =(u[8] << 16) + (u[9] << 8) + u[10]
 		
 		if(tag['Reserved']!=0):
 			raise BaseException, 'FLVError: Reserved is not 0'
@@ -443,7 +442,7 @@ class flvmetainjector:
 		datasize = [(size & 0b111111110000000000000000) >> 16,
 				    (size & 0b000000001111111100000000) >> 8,
 				    (size & 0b000000000000000011111111)]
-		header = pack('>B 3B 3B B 3B',flags,*datasize,*timestamp,timestamp0,*streamid)
+		header = pack('>B 3B 3B B 3B',flags,*list(datasize+timestamp+[timestamp0]+streamid))
 		
 		return header + body + pack('>I',len(header+body))
 		
@@ -501,7 +500,7 @@ class flvmetainjector:
 					
 		return pack('>B',type) + result
 	
-	def writescriptdatastring(self,data)
+	def writescriptdatastring(self,data):
 		StringLength = len(data)
 		return pack('>H '+str(StringLength)+'s',StringLength, data)
 	
@@ -547,4 +546,4 @@ def d(*args):
 
 if(__name__=="__main__"):
 	s=flvmetainjector()
-	s.injectstart()
+	s.injectstart(5000)
