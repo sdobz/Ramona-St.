@@ -6,6 +6,7 @@ import ramonast.library.web as web
 from ramonast.stream import stream
 from ramonast.index import index
 from ramonast.appcontrol import appcontrol
+from ramonast.browse import browse
 
 web.config.debug = True
 
@@ -13,6 +14,7 @@ urls = (
   '/', 'index',
   '/stream/(.*)', 'stream',
   '/appcontrol/(.*)', 'appcontrol',
+  '/browse/(.*)', 'browse',
 )
 
 app = web.application(urls, globals(),  autoreload=False)

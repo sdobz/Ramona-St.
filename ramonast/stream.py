@@ -1,20 +1,20 @@
 #!/usr/bin/env python
-import os, library.web, subprocess
+import os, subprocess, cgi, collections
+import library.web as web
 from struct import pack, unpack, calcsize
 from cStringIO import StringIO
 from pprint import pprint
 from time import sleep
 from time import time
-from sys import stderr
-import cgi
-escape=cgi.escape
+from threading import Timer
 from re import compile
+escape=cgi.escape
 
 # https://github.com/4poc/php-live-transcode/blob/master/stream.php
 
 mediaroot="/var/media"
 chunksize=10000
-rate=50000
+rate=0
 debug=True
 
 # Time until the ffmpeg instance expires
@@ -24,50 +24,53 @@ streams=[]
 
 # These are compiled at the end of the file
 checks={
-	's':'[0-9]*x[0-9]*',
-	'maxrate':'[0-9]*[mMkK]?',
+	'size':'[0-9]*x[0-9]*',
+	'bitrate':'[0-9]*[mMkK]?',
 	'start':'[0-9]*',
 }
 
 defaults={
-	's':'640x480',
-	'bitrate':'1000000',
+	'size':'640x480',
+	'bitrate':'1000k',
 	'start':'0',
+	'filename':'/var/media/meta.flv',
 }
 
 class stream:
 	def GET(self,request):
+		d(request)
 		qargs=get_queryparsed()
 		args=defaults.copy()
 		
-		for arg, value in qargs:
+		d(qargs)
+		
+		for arg in qargs:
+			value=qargs[arg]
+			if not(arg in checks):
+				raise web.notfound("Unknown argument: %s" % (escape(arg)))
 			if(checks[arg].match(value)==None):
 				raise web.notfound("Argument: %s contains an invalid format" % (escape(arg)))
 			args[arg] = value
-		filename=os.path.normpath(os.path.join("/var/media/",*request))
+		filename=os.path.normpath(os.path.join(mediaroot,request))
 
 		if(filename[:len(mediaroot)]!=mediaroot):
 			raise web.notfound("You cannot go up directories.")
-		
-		#args['filename']=filename
-		#yield '<h1>Arguments:</h1>'
-		#yield '<table><tr><td>Name</td><td>value</td></tr>'
-		#for k in args:
-		#	yield '<tr><td>%s</td><td>%s</td></tr>' % (escape(k),escape(args[k]))
-		#yield '</table>'
+
+		args['filename']=filename
 
 		if(os.path.isfile(filename)):
-			startpos=int(args['start'])
 			web.header('Content-Type', 'video/x-flv')
 			web.header('Cache-Control','no-store')
-			s=streamer()
-			s.makeffmpeg()
+			s=flvmetainjector(args)
+			check_expired()
 			chunk=True
 			while chunk:
 				chunk=s.getchunk(chunksize)
 				yield chunk
 				#if(rate!=0):
 				#	sleep(float(chunksize)/rate)
+		elif(os.path.isdir(filename)):
+			raise web.seeother("/browse/"+request)
 		else:
 			raise web.notfound("File: %s not found." % (filename))
 
@@ -80,19 +83,47 @@ def get_queryparsed():
 			values[str(key)] = ''.join(value)
 	return values
 
+expire_timer = False
+def check_expired():
+	global expire_timer
+	if(expire_timer):
+		expire_timer.cancel()
+		expire_timer=False
+	
+	global streams
+	newstreams=[]
+	for stream in streams:
+		if(stream.expired()):
+			stream.kill()
+		else:
+			newstreams.append(stream)
+	streams=newstreams
+	
+	if(len(streams)>0):
+		expire_timer = Timer(5,check_expired)
+		expire_timer.start()
+
 class streamer:
 	def __init__(self,args=()):
 		self.seen()
 		self.args=args
 		self.ffmpeg=False
+		self.filename=args['filename']
 		streams.append(self)
+		# d('# of streamers:',len(streams))
 		self.offset=0
+		self.makeffmpeg()
 	
 	def makeffmpeg(self):
-		ffmpegargs=("ffmpeg -ss "+str(0)+" -i /var/media/golfers.flv -async 1 -b "+"1000k"+" -s "+"640x480"+" -ar 44100 -ac 2 -v 0 -f flv -vcodec libx264 -preset superfast -threads 1 -").split()
+		ffmpegargs=["ffmpeg","-ss",self.args['start'],"-i",self.filename,"-b",self.args['bitrate'],"-s",self.args['size']]
+		ffmpegargs+=("-async 1 -ar 44100 -ac 2 -v 0 -f flv -vcodec libx264 -preset superfast -threads 1 -").split()
+		# d((" ").join(ffmpegargs))
 		self.kill()
 
-		self.ffmpeg=subprocess.Popen(ffmpegargs,stderr=stderr,stdout=subprocess.PIPE)
+		if not(os.path.isfile(self.filename)):
+			raise BaseException, 'File does not exist'
+		
+		self.ffmpeg=subprocess.Popen(ffmpegargs,stdout=subprocess.PIPE)
 		
 	def getchunk(self,size):
 		self.seen()
@@ -109,6 +140,8 @@ class streamer:
 	def kill(self):
 		if(self.ffmpeg):
 			self.ffmpeg.kill()
+			# The extra wait gets the process status and removes the zombie process
+			self.ffmpeg.wait()
 		
 	def seen(self):
 		self.lastseen=time()
@@ -116,47 +149,77 @@ class streamer:
 		if(time()-self.lastseen>expiretime):
 			return True
 		return False
-
+		
 class flvmetainjector:
 	# Based off of the flv spec, pg 68:
 	# http://download.macromedia.com/f4v/video_file_format_spec_v10_1.pdf
 	def __init__(self,args=()):
 		self.ffmpeg=streamer(args)
-		self.ffmpeg.makeffmpeg()
-		self.injected=False
-		self.hasaudio=False
-		self.hasvideo=False
 	
-	def injectstart(self,size):
-		data=self.read(13)
+	def getchunk(self,size):
+		if(self.ffmpeg.offset==0):
+			data=self.read(13)
+			if(self.verifyheader(data)==False):
+				return ''
+		else:
+			data=''
 		
+		while(len(data)<size):
+			tag, chunk = self.readtag()
+			if('ScriptDataName' in tag and tag['ScriptDataName']=='onMetaData'):
+				duration=self.getduration()
+				update(tag['ScriptDataValue'],self.createvalue({
+					'duration':duration,
+					'metadatacreator':'stream.py',
+					'hasKeyframes':'true',
+					#'keyframes':{
+					#	'filepositions':[0,1000,2000,3000],
+					#	'times':[0,1,2,3],
+					#}
+				}))
+					
+				data+=self.writetag(tag)
+			else:
+				data+=chunk
+			
+			#if('FrameType' in tag and tag['FrameType']==1):
+				#d('Keyframe at offset:'+str(self.ffmpeg.offset))
+		
+		return data
+		
+	def metadata(self):
+		data=self.read(13)
 		if(self.verifyheader(data)==False):
 			return 0
 		
-		while(self.injected==False):
+		while(True):
 			tag, chunk = self.readtag()
 			if('ScriptDataName' in tag and tag['ScriptDataName']=='onMetaData'):
-				self.injected=True
 				d(tag)
-				
-				data+=chunk
-			else:
-				data+=chunk
-		
-		return data
+				break
 	
-	def getchunk(self,size):
-		if(self.injected):
-			return self.injectstart(size)
+	def getduration(self):
+		# http://stackoverflow.com/questions/1615690/how-to-get-duration-of-video-flash-file
+		args=['ffmpeg','-i',self.ffmpeg.filename]
+		info=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+		stdout, stderr = info.communicate()
+		match = compile(r'Duration: ([\w.-]+):([\w.-]+):([\w.-]+),').search(stderr)
+		# hours minutes seconds
+		if(match):
+			hours = float(match.group(1))
+			minutes = float(match.group(2))
+			seconds = float(match.group(3))
+			return hours*60*60 + minutes*60 + seconds
 		else:
-			return self.read(size)
+			return 0
+		
 	
 	def read(self,size):
 		return self.ffmpeg.getchunk(size)
-				
+	
 	def verifyheader(self,header):
 		if(len(header)!=13):
-			raise 'FLVError'
+			raise BaseException, 'FLVError: No data read.'
 		unpacked=unpack('>3s B B I I',header)
 		FLVsignature=unpacked[0]
 		#d("Sig: ",FLVsignature)
@@ -478,13 +541,14 @@ class flvmetainjector:
 		# 8 - ECMA Array
 		if(type==8):
 			# This value is approximate? Weh?
-			result = pack('>I',len(data)) + self.parsescriptdataobject(data)
+			result = pack('>I',len(data)) + self.writescriptdataobject(data)
 		
 		# 9 - Object end marker, only need to return type
 		# 10 - Strict Array
 		if(type==10):
-			result += pack('>H',len(data))
+			ArrayLength=len(data)
 			
+			result += pack('>H',ArrayLength)
 			for i in range(0,ArrayLength):
 				result += self.writescriptdatavalue(data[i])
 		
@@ -506,13 +570,35 @@ class flvmetainjector:
 	
 	def writescriptdataobject(self,data):
 		result=''
-		for key,value in data:
+
+		for key,value in data.iteritems():
 			result += self.writescriptdatastring(key)
 			result += self.writescriptdatavalue(value)
 		
 		result += self.writescriptdatastring('')
-		result += self.writescriptdatavalue({'Type':9})
+		result += self.writescriptdatavalue({'Type':9,'Data':0})
 		return result
+	
+	def createvalue(self,data):
+		# This can handle numbers, strings, lists (array) and dicts (object)
+		if(type(data) in [int,float]):
+			return {'Type':0,'Data':data}
+		
+		if(type(data)==str):
+			return {'Type':2,'Data':data}
+		
+		if(type(data)==list):
+			body=[]
+			for item in data:
+				body.append(self.createvalue(item))
+			return {'Type':10,'Data':body}
+		
+		if(type(data)==dict):
+			body={}
+			for key,value in data.iteritems():
+				body[key]=self.createvalue(value)
+			return {'Type':3,'Data':body}
+		
 
 for k in checks:
 	checks[k]=compile("^"+checks[k]+"$")
@@ -538,6 +624,15 @@ def quickread_d(format,source):
 	data=source.read(size)
 	return unpack(format,data)[0], data
 
+def update(d, u):
+    for k, v in u.iteritems():
+        if isinstance(v, collections.Mapping):
+            r = update(d.get(k, {}), v)
+            d[k] = r
+        else:
+            d[k] = u[k]
+    return d
+
 def d(*args):
 	if(debug):
 		print("DEBUG:")
@@ -545,5 +640,5 @@ def d(*args):
 			pprint(i)
 
 if(__name__=="__main__"):
-	s=flvmetainjector()
-	s.injectstart(5000)
+	s=flvmetainjector(defaults)
+	s.metadata()
