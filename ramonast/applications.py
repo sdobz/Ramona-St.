@@ -3,34 +3,32 @@
 # As of 12/17/11 this module does NOT work, and doesn't conform to RamonaSt
 # module format. Will be updated later --sdobz
 
-import os, subprocess, time, xmlrpclib
+import os, subprocess, time
 from random import random
 
+commands={}
 port = 7979
+command_dir="/var/apps/control/init.d"
+
+actions = [
+	'start',
+	'stop',
+	'restart',
+	'status'
+]
 
 def action(app,action,block=False):
 	log("=== NEW ACTION")
-	if not (app in apps):
+	if not(os.path.exists(os.path.join(command_dir,action))):
 		return "Invalid app"
 	if not (action in actions):
 		return "Invalid action"
-
-	
 	
 	if(block):
 		return runcmd(["sudo","control",app,action])
 	else:
-		
-		pid = daemon()
-		log("Got daemon! "+str(pid))
-		if not(pid):
-			# Start the daemon
-			log("Starting process")
-			subprocess.Popen("/var/www/control/applications.py")
-		
 		log("Responding...")
-		return xmlrpcclient().action(app,action)
-		
+		prg = 
 def rcmd(app,action):
 	if not (app in apps):
 		return "Invalid app"
@@ -42,22 +40,10 @@ def rcmd(app,action):
 		return "Command not running"
 	
 	return xmlrpcclient().rcmd(app,action)
-
-def xmlrpcclient():
-	return xmlrpclib.ServerProxy('http://localhost:'+str(port))
 	
 def runcmd(args):
 	# Run the args and return the output
 	return subprocess.check_output(args)
-
-def daemon():
-	# This checks if there is a .pid file, and if so returns the filename of the /proc/
-	if(os.path.isfile("/var/run/lighttpd/applications.pid")):
-		with open('/var/run/lighttpd/applications.pid', 'r') as f:
-			pid = f.read()
-		if(os.path.isdir("/proc/"+pid+"/")):
-			return pid
-	return False
 
 def getresponse(pid,func,app,action):
 	# Write to the stdin of the daemon
@@ -79,53 +65,23 @@ def startup(app):
 	return False
 
 def log(text):
-	subprocess.Popen("echo "+str(text)+" >> /dev/pts/4",shell=True)
+	print(text)
 
-apps=[
-		"tomcat6",
-		"rtorrent",
-		"sabnzbdplus",
-		"couchpotato",
-		"sickbeard",
-		"trackmania",
-		"xaseco",
-		"mumble-server",
-		"mysql",
-		"minecraft"
-	]
-actions=[
-		"start",
-		"stop",
-		"restert",
-		"status",
-		"checkstartup",
-		"makestartup",
-		"removestartup"
-	]
+class command:
+	def __init__(self,app,action):
+		global commands
+		if app+action in commands:
+			return False
+		
+		self.proc=self.makeprocess(app,action)
+		
+	def makeprocess(self,app,action):
+		return Process(["sudo","control",app,action])
 	
 if(__name__=="__main__"):
 	import sys
 	from asyncproc import Process
-	from SimpleXMLRPCServer import SimpleXMLRPCServer
-	from SimpleXMLRPCServer import SimpleXMLRPCRequestHandler
 	from select import select
-
-	log("Started")
-	
-	if(daemon()):
-		print("Already running")
-		sys.exit(1)
-	
-	# Write the pid file
-	pid = os.getpgid(0)
-	with open('/var/run/lighttpd/applications.pid', 'w') as f:
-		f.write(str(pid))
-	
-	log("PID written.")
-	log(pid)
-	
-	def makeprocess(app,action):
-		return Process(["sudo","control",app,action])
 	
 	def datawaiting(socket):
 		return select([socket], [], [], .1) == ([socket], [], [])
