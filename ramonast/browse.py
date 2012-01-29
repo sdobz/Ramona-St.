@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from library.web.template import render as make_renderer
 render = make_renderer('templates/browse')
 from index import render as index_render

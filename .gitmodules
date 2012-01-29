@@ -1,0 +1,6 @@
+[submodule "themoviedb"]
+	path = themoviedb
+	url = git://github.com/doganaydin/themoviedb.git
+[submodule "tvdb"]
+	path = tvdb
+	url = git://github.com/dbr/tvdb_api.git
