@@ -1,45 +1,88 @@
 #!/usr/bin/env python
 
-# TVDB API E4A9298AF1FA826C
-# TMDB API a95e77702c63a163c97b9d4414af09da
-
 from library import web
 import os, os.path, datetime
-from library.themoviedb import tmdb
+from library.tmdb import tmdb
 from library.tvdb import tvdb_api as tvdb
-from pydo import *
+import peewee as pw
 
-initAlias('media_browser','mysql',('localhost','media_browser','HbUjzsaxjrysBn7x','media_browser'))
-# db = web.database(dbn='mysql', db='media_browser', user='media_browser', pw='HbUjzsaxjrysBn7x')
+import library.pyacoustid.acoustid as acoustid
+import musicbrainz2.webservice as ws
 
-tmdb.configure("a95e77702c63a163c97b9d4414af09da")
+from config import *
 
-class VideoStore(PyDO):
-	connectionAlias='media_browser'
-	table='VIDEOS'
-	fields = (
-		('id',	'int(10)'),
-		('filename',	'varchar(255)'),
-		('type',		'enum(\'SHOW\',\'MOVIE\',\'OTHER\')'),
-		('title',		'varchar(255)'),
-		('date',		'date'),
-		('rating',		'smallint(6)'),
-		('runtime',		'smallint(6)'),
-		('tagline',		'varchar(400)'),
-		('summary',		'text'),
-		('budget',		'int(11)'),
-		('revenue',		'int(11)'),
-		('cachedate',	'date')
-	)
-	unique = [ 'id', 'filename' ]
+
+MUSIC_FILES=['.mp3','.m4a','.m4p','.mp4','.wav']
+
+database = pw.MySQLDatabase(MySQLDatabase, user=MySQLUser, passwd=MySQLPassword)
+database.connect()
+class BaseModel(pw.Model):
+	class Meta:
+			database = database
+
+class Videos(BaseModel):
+	id = pw.IntegerField(db_index=True,unique=True)
+	filename = pw.CharField(unique=True)
+	type = pw.IntegerField(size=2)
+	title = pw.CharField()
+	date = pw.DateTimeField()
+	rating = pw.IntegerField()
+	runtime = pw.IntegerField()
+	tagline = pw.TextField()
+	summary = pw.TextField()
+	budget = pw.IntegerField()
+	revenue = pw.IntegerField()
+	cachedate = pw.DateTimeField()
+
+class Songs(BaseModel):
+	id = pw.IntegerField(db_index=True,unique=True)
+	filename = pw.CharField(unique=True)
+	title = pw.CharField()
+	artist = pw.CharField()
+	musicbrainz = pw.CharField()
+
+class Tracks(BaseModel):
+	trackid = pw.CharField(unique=True, size=36)
+	title = pw.CharField()
+	artistid = ForeignKeyField(Artists)
+	duration = pw.IntegerField()
+	
+class Releases(BaseModel):
+	releaseid = pw.CharField(unique=True, size=36)
+	title = pw.CharField()
+	artistid = ForeignKeyField(Artists)
+
+class ReleaseTracks(BaseModel):
+	trackid = ForeignKeyField(Tracks)
+	releaseid = ForeignKeyField(Releases)
+
+class ReleaseEvents(BaseModel):
+	releaseid = ForeignKeyField(Releases)
+	country = pw.CharField()
+	date = pw.DateTimeField()
+
+class Artists(BaseModel):
+	artistid = pw.CharField(unique=True, size=36)
+	name = pw.CharField()
+	disambiguation = pw.CharField()
+	startdate = pw.DateTimeField()
+	enddate = pw.DateTimeField()
+	
+
+	
+#database.drop_table(Videos)
+#Videos.create_table()
+
+#Songs.create_table()
+
+tmdb.configure(tmdbAPI)
 
 def LoadByTMDB(id):
 	movie = tmdb.getMovieInfo(id)
 	data={}
-	Store=VideoStore(id=id)
-	data['type']='MOVIE'
+
+	data['type']=0
 	data['title']=movie['name']
-	print(data['title'])
 	data['date']=movie['released']
 	data['rating']=int(float(movie['rating'])*10)
 	data['runtime']=movie['runtime']
@@ -48,26 +91,70 @@ def LoadByTMDB(id):
 	data['budget']=movie['budget']
 	data['revenue']=movie['revenue']
 	now = datetime.datetime.now()
-	data['cachedate']="%d-%d-%d" % (now.month, now.day, now.year)
-	Store.updateValues(data)
-	Store.commit()
-	return Store
+	data['cachedate']="%d-%d-%d" % (now.year, now.month, now.day)
+	
+	return data
 
 def LoadByFilename(filename):
-	results = tmdb.search(os.path.splitext(os.path.basename(filename))[0])
-	if(len(results)>0):
-		searchResult = results[0]
-		Store = LoadByTMDB(searchResult['id'])
-		Store['filename']=filename
-		Store.commit()
-			
+	print("Looking up:",filename)
+	if(os.path.splitext(filename)[1] in MUSIC_FILES):
+		if(Songs.select().where(filename=filename).count()==0):
+			Songs(**LookupAcoustID(filename)).save()
+	
+	#results = tmdb.search(os.path.splitext(os.path.basename(filename))[0])
+	#if(len(results)>0):
+	#	searchResult = results[0]
+	#	data = LoadByTMDB(searchResult['id'])
+	#	data['filename']=filename
+	#	
+	#	row=Videos(**data)
+	#	row.save()
 
-print("Starting scan")
+def LookupAcoustID(path):
+	result = {
+		"filename": path,
+		"title": os.path.basename(os.path.splitext(path)[0]),
+		"artist": "Unknown",
+	}
+	for score, recording_id, title, artist in acoustid.match(AcoustidAPI, path):
+		result['title']=title
+		result['artist']=artist
+		result['musicbrainz']=recording_id
+	
+	return result
 
-i = 0
-for root, dirs, files in os.walk('/var/media/videos/Movies'):
-	for f in files:
-		if(i>5):
-			break
-		fullpath = os.path.join(root, f)
-		LoadByFilename(fullpath)
+def LookupMusicBrainz(fullpath):
+	data = acoustid.match(AcoustidAPI, fullpath)
+	if data['status'] != 'ok':
+		return result
+	if 'results' not in data:
+		return result
+	if(len(data['results'])==0):
+		return result
+	
+	
+	#trackId = data['results'][0]['recordings'][0]['id']
+	q = ws.Query()
+	# artist=False, releases=False, puids=False, artistRelations=False, releaseRelations=False, trackRelations=False, urlRelations=False, tags=False, ratings=False, isrcs=False
+	include = ws.TrackIncludes(artist = True, tags=True, releases=True)
+	
+	track = q.getTrackById(trackId, include)
+	
+	result['title']=track.getTitle()
+	result['artist']=track.getArtist()
+	release = track.getReleases()
+	
+	result['album']=release[0].getTitle()
+	
+
+if __name__ == "__main__":
+	import sys
+	if(sys.argc > 0):
+		if(sys.argv[1]=="run"):
+			print("Starting scan")
+
+			for root, dirs, files in os.walk('/var/media/music/'):
+				for f in files:
+					fullpath = os.path.join(root, f)
+					LoadByFilename(fullpath)
+
