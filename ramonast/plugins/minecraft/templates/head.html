@@ -1,0 +1,36 @@
+<script src="/static/js/jquery-1.7.min.js"></script>
+<script type="text/javascript">
+function give(item) {
+	$$.ajax("/minecraft/"+$$("#player").val()+"/"+$$("#quantity").val()+"/"+item)
+}
+
+</script>
+<style type="text/css">
+#specifications span {
+	right: 100px;
+}
+#specifications input {
+	left: 150px;
+}
+.itemwrapper {
+	float: left;
+	height: 27px;
+	width:150px;
+	margin:3px;
+	background-color: #333;
+	border-radius: 5px;
+	-webkit-transition: background-color ease 200ms;
+}
+.itemwrapper span {
+	float: right;
+	font-size: 80%;
+	margin: 2px;
+}
+.itemwrapper:hover {
+	background-color:#444;
+}
+.itemwrapper img {
+	top: 2px;
+	left: 2px;
+}
+</style>

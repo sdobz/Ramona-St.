@@ -45,14 +45,20 @@ class process:
 		if(self.proc):
 			if(self.buffer!=False):
 				# One last read
-				self.expired()
+				self.readtobuffer()
+				
 				if(size==0):
 					size = len(self.buffer)
 				chunk=self.buffer[:size]
 				self.buffer=self.buffer[size:]
+				if(self.running() == False and len(chunk) == 0):
+					# Stopped program has no new output
+					return False
 				return chunk
 			else:
 				return self.proc.stdout.read(size)
+		
+		return False
 		
 	
 	def running(self):
@@ -64,23 +70,25 @@ class process:
 	
 	def readtobuffer(self):
 		if(self.buffer!=False):
-			try:  line = self.queue.get_nowait() # or q.get(timeout=.1)
+			try:
+				line = self.queue.get_nowait() # or q.get(timeout=.1)
 			except Empty: # No output
 				pass
 			else: # got line
 				self.buffer+=line
 	
 	def expired(self):
-		self.readtobuffer()
-		
 		if(time()-self.lastseen>self.expiretime):
 			return True
 		return False
-
+		
 def enqueue_output(out, queue):
     for line in iter(out.readline, ''):
         queue.put(line)
     out.close()
+
+def command(args):
+	return subprocess.Popen(args).communicate()
 
 expire_timer = False
 def check_expired():
@@ -94,7 +102,7 @@ def check_expired():
 	for proc in processes:
 		if not(proc.expired()):
 			newprocesses.append(proc)
-		else
+		else:
 			del proc
 	processes=newprocesses
 	

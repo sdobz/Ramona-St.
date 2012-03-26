@@ -14,3 +14,10 @@ tmdbAPI = "a95e77702c63a163c97b9d4414af09da"
 
 #AcoustidAPI = u"MmJZVaxR"
 AcoustidAPI = "yZCWTL3W"
+
+LastFMAPI = "a7fa887dc3b8a2155a26b3458fd7ee6b"
+LastFMSecret = "49580f2e2f66bed7a8a23964f0d20dd0"
+
+plugins = [
+	"index",
+]

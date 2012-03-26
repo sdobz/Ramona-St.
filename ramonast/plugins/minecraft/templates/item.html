@@ -1,0 +1,8 @@
+$def with (item)
+<a onClick="give($item.dec);"><div class="itemwrapper">
+$if(item.imagehtml!=""):
+	$:item.imagehtml
+$else:
+	<img src="$item.imageurl" width="25" height="25" />
+<span>$item.name</span>
+</div></a>
