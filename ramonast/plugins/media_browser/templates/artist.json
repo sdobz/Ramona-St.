@@ -1,0 +1,13 @@
+$def with (artist)
+{
+	"menu": {
+		"songs_by": {
+			"text": "Songs by this artist",
+			"url": "#/music/artist/songs_by/$artist.id"
+		}
+	},
+	"template": "artist",
+	"content": {
+		"name": "$artist.name"
+	}
+}

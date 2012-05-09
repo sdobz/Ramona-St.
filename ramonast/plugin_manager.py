@@ -2,22 +2,24 @@
 
 import os
 import applications
+from library.web.utils import group
 
 PLUGIN_DIR = "plugins."
 
 plugins = {}
 
 def load(name):
-	if(name in plugins):
+	if(plugin_loaded(name)):
 		raise PluginAlreadyLoaded
-	
-	try:
-		plugins[name] =  __import__(PLUGIN_DIR + name, globals(), locals(), [name], -1)
-	except ImportError:
-		raise PluginNotFound(name)
+
+	#try:
+	plugins[name] =  __import__(PLUGIN_DIR + name, globals(), locals(), [name], -1)
+	#except ImportError:
+		# Also hit by legitimate import errors in plugins
+	#	raise PluginNotFound(name)
 		
 	plugin = plugins[name]
-	
+
 	if(hasattr(plugin,"application")):
 		applications.applications.append(plugin.application)
 	if(hasattr(plugin,"applications")):
@@ -28,32 +30,21 @@ def load(name):
 
 # Format the url from a list to a bunch of tuples
 def get_urls(name):
-	if not(name in plugins):
+	if not(plugin_loaded(name)):
 		raise PluginNotLoaded
 	
 	if not(hasattr(plugins[name],"urls")):
 		return []
 	
-	urls = []
-	
-	url = False
-	handler = False
-	
-	for urlbit in plugins[name].urls:
-		if(url != False):
-			handler = urlbit
-			
-			urls.append((url,handler))
-			url = False
-		
-		else:
-			url = urlbit
-	return urls
+	return list(group(plugins[name].urls, 2))
 
 def depends_on(deps):
 	for dep in deps:
-		if not(dep in plugins):
+		if not(plugin_loaded(dep)):
 			raise MissingDependancy(dep)
+
+def plugin_loaded(plugin):
+	return (plugin in plugins)
 
 class PluginAlreadyLoaded(Exception):
 	""" Plugin already loaded exception """

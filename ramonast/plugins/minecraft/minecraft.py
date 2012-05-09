@@ -1,44 +1,55 @@
 #!/usr/bin/env python
-from library.web.template import render as make_renderer
-render = make_renderer('templates/minecraft')
-from index import render as index_render
 
 from bs4 import BeautifulSoup
 from bs4.element import NavigableString
-import re, string, pickle, subprocess
+import re, string, pickle
+from applications import BaseApplication
+from page import page
+
+from plugin_manager import depends_on
+depends_on(["theme"])
 
 MINECRAFT_DIR = '/var/apps/minecraft'
 STORAGE_DIR = '/var/apps/minecraft/script/RamonaSt'
 WIKI_BASE = 'http://www.minecraftwiki.net'
 
-class minecraft:
+urls = ( "/minecraft/(.*)", "minecraft" )
+
+class minecraft(page):
 	def GET(self,dir):
 		if(dir != ""):
-			givestr(dir)
+			application.givestr(dir)
 		items = ""
 		for item in pickle.load(open(STORAGE_DIR + '/cache.pickle','r')):
-			items += Item.Load(item).html()
-		return index_render.index(render.head(),render.body(items))
+			items += self.render("item",Item.Load(item))
+		return self.html([],[items])
 
-def givestr(dir):
-	args = string.split(dir,"/")
-	print(args)
-	if(len(args)<3):
-		return False
-	# pattern = re.compile('[a-zA-Z 0-9]+')
-	pattern = re.compile('\W+')
-	name = pattern.sub('', args[0])
-	quantity = int(args[1])
-	item = int(args[2])
-	give(name, quantity, item)
-	
-def give(name, quantity, item):
-	print("Giving ",name,quantity, item)
-	while(quantity > 0):
-		args=["sudo","control","minecraft","give",name,str(item),str(quantity % 64)]
-		subprocess.Popen(args).communicate()
-		quantity -= 64
-		# give person item quant
+class MinecraftApplication(BaseApplication):
+	def givestr(self, dir):
+		args = string.split(dir,"/")
+		print(args)
+		if(len(args)<3):
+			return False
+		# pattern = re.compile('[a-zA-Z 0-9]+')
+		pattern = re.compile('\W+')
+		name = pattern.sub('', args[0])
+		quantity = int(args[1])
+		item = int(args[2])
+		self.give(name, quantity, item)
+		
+	def give(self, name, quantity, item):
+		while(quantity > 0):
+			args=["sudo","control","minecraft","give",name,str(item),str(quantity % 64)]
+			self.control(args)
+			quantity -= 64
+			# give person item quant
+
+application = MinecraftApplication(
+	pretty_name = "Minecraft",
+	name = "minecraft",
+	description = "Minecraft manager frontend",
+	image_url = "/static2/minecraft/minecraft.png",
+)
 
 class Item:
 	def __init__(self):
@@ -70,9 +81,6 @@ class Item:
 	
 	def __str__(self):
 		return "Minecraft item: " + self.name + " - " + str(self.dec)
-	
-	def html(self):
-		return unicode(render.item(self))
 
 def GetValues():
 	soup = BeautifulSoup(open(STORAGE_DIR + '/cache.html','r'))

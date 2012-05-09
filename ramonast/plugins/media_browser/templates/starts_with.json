@@ -1,0 +1,22 @@
+$def with (items)
+$code:
+	def mark_last(items): 
+		items = iter(items) 
+		last = items.next()
+		for item in items: 
+			yield False, last 
+			last = item 
+		yield True, last 
+{
+	"menu": {
+$for is_last, item in mark_last(items):
+		"$item.id": {
+			"text": "$item.name",
+			"url": "$item.id/"
+	$if(is_last):
+		}
+	$else:
+		},
+$pass
+	}
+}

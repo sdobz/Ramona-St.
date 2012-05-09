@@ -21,6 +21,8 @@ from mutagen.mp4 import MP4StreamInfoError
 
 from warnings import warn
 
+import database as db
+
 
 MUSIC_FILES=['.mp3','.m4a','.m4p','.mp4','.wav']
 VIDEO_FILES=[]
@@ -47,24 +49,8 @@ class BaseModel(pw.Model):
 	class Meta:
 			database = database
 
-class Videos(BaseModel):
-	filename = pw.CharField(unique=True)
-	type = pw.IntegerField(size=2)
-	title = pw.CharField()
-	date = pw.DateTimeField()
-	rating = pw.IntegerField()
-	runtime = pw.IntegerField()
-	tagline = pw.TextField()
-	summary = pw.TextField()
-	budget = pw.IntegerField()
-	revenue = pw.IntegerField()
-	cachedate = pw.DateTimeField()
-	
-class Fingerprints(BaseModel):
-	fingerprint = pw.TextField()
-	duration = pw.IntegerField()
-	submitted = pw.DateTimeField()
-	
+
+class Fingerprint(db.Fingerprint):
 	def NeedsRefresh(self):
 		return (self.submitted == None or (datetime.datetime.now() - self.submitted).days > MAX_CACHE_AGE)
 	
@@ -82,19 +68,13 @@ class Fingerprints(BaseModel):
 				song.artist = artist
 				song.trackid = recording_id
 	
-class Songs(BaseModel):
-	filename = pw.CharField(unique=True)
-	title = pw.CharField()
-	artist = pw.CharField()
-	trackid = pw.CharField(size=36)
-	fingerprint = pw.ForeignKeyField(Fingerprints)
-	
+class Song(db.Song):
 	@staticmethod
 	def GetFromFile(path):
 		try:
-			song = Songs.get(filename = path)
+			song = Song.get(filename = path)
 		except Songs.DoesNotExist:
-			song = Songs(
+			song = Song(
 				filename = path,
 				submitted = "0-0-0"
 			)
@@ -124,13 +104,13 @@ class Songs(BaseModel):
 	def GetFingerprint(self):
 		try:
 			return self.fingerprint
-		except Fingerprints.DoesNotExist:
+		except Fingerprint.DoesNotExist:
 			try:
 				duration,fp = acoustid.fingerprint_file_fpcalc(self.filename)
 			except acoustid.FingerprintGenerationError:
 				raise LookupError("Error generating fingerprint",self.filename)
 			
-			return Fingerprints(
+			return Fingerprint(
 				fingerprint = fp,
 				duration = duration,
 			)
@@ -138,7 +118,7 @@ class Songs(BaseModel):
 	@staticmethod
 	def Import(path):
 		print(path)
-		song = Songs.GetFromFile(path)
+		song = Song.GetFromFile(path)
 		
 		if(song.id > 34298):
 			return
@@ -154,36 +134,6 @@ class Songs(BaseModel):
 		song.save()
 		if(song.title):
 			print("    "+song.title)
-	
-	def Move(self,newpath):
-		
-	
-		
-class Artists(BaseModel):
-	artistid = pw.CharField(size=36,unique=True)
-	name = pw.CharField()
-	sortname = pw.CharField()
-	disambiguation = pw.CharField()
-	
-class Tracks(BaseModel):
-	trackid = pw.CharField(size=36,unique=True)
-	title = pw.CharField()
-	artist = pw.ForeignKeyField(Artists)
-
-class Tags(BaseModel):
-	item = pw.CharField(size=36)
-	tag = pw.CharField()
-	count = pw.IntegerField(size=2)
-	
-class Releases(BaseModel):
-	releaseid = pw.CharField(db_index=True, size=36)
-	title = pw.CharField()
-	artist = pw.ForeignKeyField(Artists)
-
-class ReleaseTracks(BaseModel):
-	track = pw.ForeignKeyField(Tracks)
-	release = pw.ForeignKeyField(Releases)
-	tracknumber = pw.IntegerField(size=2)
 	
 
 def LoadByTMDB(id):
@@ -208,7 +158,7 @@ def LoadByTMDB(id):
 def LoadByFilename(filename):
 	ext = os.path.splitext(filename)[1]
 	if(ext in MUSIC_FILES):
-		Songs.Import(filename)
+		Song.Import(filename)
 	
 	if(ext in VIDEO_FILES):
 		results = tmdb.search(os.path.splitext(os.path.basename(filename))[0])
@@ -219,7 +169,9 @@ def LoadByFilename(filename):
 			
 			row=Videos(**data)
 			row.save()
-			
+
+
+	
 	
 def D(first,second):
 	if(first==None):
@@ -235,7 +187,7 @@ def LookupMusicBrainz(trackId):
 	releaseinclude = ws.ReleaseIncludes(tracks = True)
 	
 	try:
-		trackrow = Tracks.get(trackid = trackId)
+		trackrow = Track.get(trackid = trackId)
 		return
 	except Tracks.DoesNotExist:
 		try:
@@ -245,17 +197,17 @@ def LookupMusicBrainz(trackId):
 	
 		artist = track.getArtist()
 	
-		trackrow=Tracks(**{
-			'trackid': trackId,
-			'title': track.getTitle(),
-		})
+		trackrow=Track(
+			trackid = trackId,
+			title = track.getTitle(),
+		)
 	
 	if(artist):
 		artistid = artist.getId()[-36:]
 		try:
-			artistrow = Artists().get(artistid = artistid)
-		except Artists.DoesNotExist:
-			artistrow = Artists(
+			artistrow = Artist.get(artistid = artistid)
+		except Artist.DoesNotExist:
+			artistrow = Artist(
 				artistid = artistid,
 				name = D(artist.getName(),"Unknown"),
 				sortname = D(artist.getSortName(),""),
@@ -266,9 +218,9 @@ def LookupMusicBrainz(trackId):
 		tagname = tag.getValue()
 		count = tag.getCount()
 		try:
-			tagrow = Tags.get(item = trackrow.trackid, tag = tagname)
-		except Tags.DoesNotExist:
-			tagrow = Tags(
+			tagrow = Tag.get(item = trackrow.trackid, tag = tagname)
+		except Tag.DoesNotExist:
+			tagrow = Tag(
 				item = trackrow.trackid,
 				tag = tagname,
 			)
@@ -279,10 +231,10 @@ def LookupMusicBrainz(trackId):
 	releaserow = False
 	releasetrackrow = False
 	
-	if(ReleaseTracks.select().where(track = trackrow).count()==0):
+	if(ReleaseTrack.select().where(track = trackrow).count()==0):
 		print("    Getting first release...")
 		for release in track.getReleases():
-			releaserow = Releases(
+			releaserow = Release(
 				releaseid = release.getId()[-36:],
 				title = release.getTitle(),
 			)
@@ -298,7 +250,6 @@ def LookupMusicBrainz(trackId):
 					
 					break
 				i+=1
-			
 			
 			# Only do first release
 			break
@@ -325,11 +276,18 @@ def FindIssues():
 	for song in Songs.select():
 		if not(os.path.exists(song.filename)):
 			print("Song does not have file: "+song.filename)
-		
+
+def LoadByTVDB(filename):
+	
 
 if __name__ == "__main__":
 	import sys
 	if(len(sys.argv) > 1):
+		if(sys.argv[1]=="shows"):
+			for root, dirs, files in os.walk('/var/media/videos/Shows/'):
+				for f in files:
+					fullpath = os.path.join(root, f)
+					LoadByTVDB(fullpath)
 		if(sys.argv[1]=="run"):
 			print("Starting scan")
 

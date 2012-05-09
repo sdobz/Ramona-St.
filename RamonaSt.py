@@ -4,20 +4,11 @@ import sys
 sys.path.append("/var/apps/RamonaSt/ramonast")
 
 import library.web as web
+import plugin_manager, config
 
 web.config.debug = True
 
-#urls = (
-#  '/',					'index',
-#  '/stream/(.*)',		'stream',
-#  '/appcontrol/(.*)',	'appcontrol',
-#  '/browse/(.*)',		'browse',
-#  '/minecraft/(.*)',	'minecraft'
-#)
-
 urls = []
-
-import plugin_manager, config
 for plugin_name in config.plugins:
 	plugin = plugin_manager.load(plugin_name)
 	
@@ -27,6 +18,7 @@ for plugin_name in config.plugins:
 		urls.append(url)
 		urls.append(handler_name)
 
-app = web.application(urls, globals(),  autoreload=False)
-		
-if __name__ == "__main__": app.run()
+app = web.application(urls, globals(), autoreload=False)
+
+from static import StaticMiddleware
+if __name__ == "__main__": app.run(StaticMiddleware)

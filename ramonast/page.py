@@ -2,7 +2,9 @@
 import library.web as web
 import inspect
 
-import os
+from plugin_manager import plugin_loaded
+
+import os, sys
 
 
 # A helper class that includes standard page type stuff
@@ -11,10 +13,9 @@ class page:
 		if not(hasattr(self,"render_instance")):
 			template_dir = os.path.join("ramonast","plugins",self.get_plugin(),"templates")
 			self.render_instance = web.template.render(template_dir)
-
 		render_func = getattr(self.render_instance,template)
 
-		return render_func(*args)
+		return unicode(render_func(*args))
 		
 	# This will figure out the plugin that the instance derives from
 	def get_plugin(self):
@@ -23,18 +24,17 @@ class page:
 	
 	def get_class(self):
 		return self.__class__.__name__
-	
-	def html(self):
-		return self.render(self.get_class(),"head","body")
-
 		
-# If you extend static it can be used to serve the static files for a plugin
+	def head(self,*args):
+		return self.render("head",*args)
+	
+	def body(self,*args):
+		return self.render("body",*args)
+	
+	def html(self, head = [], body = []):
+		return theme().encapsulate(self.head(*head),self.body(*body))
 
-# Ex:
-# import page
-# urls = ( "/minecraft/static/(.*)", "static" )
-# class static(page.static):
-#
-class static:
-	def GET(self, url):
-		return "ok"
+
+def theme():
+	if(plugin_loaded("theme")):
+		return sys.modules['plugins.theme'].theme()

@@ -1,0 +1,8 @@
+{
+	"menu": {
+		"artist": {
+			"url": "#/music/artist/",
+			"text": "Artist"
+		}
+	}
+}

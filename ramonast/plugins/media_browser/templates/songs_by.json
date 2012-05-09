@@ -1,0 +1,14 @@
+$def with (tracks)
+{
+	"menu": {
+$for track in tracks:
+		"$track.id": {
+			"url": "#/music/song/$track.id",
+			"text": "$track.title"
+	$if(track != tracks[-1]):
+		},
+	$else:
+		}
+$pass
+	}
+}

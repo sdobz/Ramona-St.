@@ -1,0 +1,74 @@
+html, body, div, span, object, iframe, h1, h2, h3, h4, h5, h6, p, blockquote, pre, a, img, ins, ol, ul, li, table, caption, tbody, tfoot, thead, tr, th, td, canvas, embed {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	font-size: 100%;
+	font: inherit;
+	vertical-align: baseline;
+}
+body {line-height: 1;}
+ol, ul {list-style: none;}
+blockquote, q {quotes: none;}
+blockquote:before, blockquote:after, q:before, q:after {
+	content: '';
+	content: none;
+}
+table {
+	border-collapse: collapse;
+	border-spacing: 0;
+}
+
+::-webkit-scrollbar {
+width: 10px;
+height: 0px;
+}
+::-webkit-scrollbar-thumb:vertical {
+height: 50px;
+background-color: #666;
+border: 1px solid #eee;
+-webkit-border-radius: 6px;
+}
+
+.menu {
+	margin-left: 3px;
+	background-left: 2px solid red;
+}
+#main {
+	background-color: green;
+	overflow: scroll;
+}
+
+#banner {
+	height: 140px;
+	width: 758px;
+	margin: 0px auto;
+}
+#banner h2 {
+	position: absolute;
+}
+#footer {
+	height: 32px;
+	width: 100%;
+	background-color: red;
+	position: absolute;
+	bottom: 0px;
+}
+
+#content_left {
+	margin-right: 300px;
+	float: left;
+}
+#poster img {
+	height: 400px;
+}
+#content_right {
+	width: 300px;
+	float: right;
+}
+
+#header {
+	height: 32px;
+	width: 100%;
+	background-color: red;
+}
+

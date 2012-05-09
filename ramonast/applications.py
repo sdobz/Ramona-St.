@@ -46,12 +46,14 @@ class BaseApplication:
 	def get_url(self):
 		if("url" in self.settings):
 			return self.settings["url"]
+		if("name" in self.settings):
+			return "/"+self.get_name() + "/"
 		return "/"
 	
 	def get_image_url(self):
 		if("image_url" in self.settings):
 			return self.settings["image_url"]
-		return "/content/index/apps/" & self.get_name() & ".png"
+		return "/static2/index/images/apps/" + self.get_name() + ".png"
 	
 	def start(self):
 		if("startfunc" in self.settings):
@@ -95,4 +97,3 @@ class BaseApplication:
 				return False
 		else:
 			raise CommandNotRunning
-

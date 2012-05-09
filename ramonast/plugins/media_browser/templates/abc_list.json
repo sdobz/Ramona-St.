@@ -1,0 +1,14 @@
+{
+	"menu": {
+$for c in "ABCDEFGHIJKLMNOPQUSTUVWXYZ":
+		"$c": {
+			"text": "$c",
+			"url": "$c/"
+		},
+$pass
+		"num": {
+			"text": "0-9",
+			"url": "num/"
+		}
+	}
+}

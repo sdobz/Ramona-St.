@@ -19,5 +19,10 @@ LastFMAPI = "a7fa887dc3b8a2155a26b3458fd7ee6b"
 LastFMSecret = "49580f2e2f66bed7a8a23964f0d20dd0"
 
 plugins = [
+	"theme",
+	"minecraft",
+	"media_browser",
 	"index",
 ]
+
+theme = "black"
