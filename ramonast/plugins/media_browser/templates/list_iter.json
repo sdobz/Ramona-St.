@@ -1,0 +1,7 @@
+$def with (rows)
+{
+	"list":
+	[
+$',\n'.join(("[%s]" % (",".join(("'%s'" % col for col in row))) for row in rows))
+	]
+}
