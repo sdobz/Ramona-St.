@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 
+if(__name__ == "__main__"):
+	import sys
+	sys.path.append("/var/apps/RamonaSt/ramonast")
+
 from page import page
-from plugin_manager import depends_on
 import database as db
 import library.web as web
-from peewee import R
-from re import escape as escape
-
-depends_on(["theme"])
+# import library.peewee as pw
+import library.rs_pwv as pw
 
 urls = (
-	#"/media_browser/ajax/music/artist/songs_by/(.*)", "songs_by",
 	"/media_browser/ajax/music/artist/(.*)", "artist",
+	"/media_browser/ajax/music/album/(.*)", "release",
 	"/media_browser/ajax/music/song/(.*)", "track",
 	"/media_browser/ajax/music/", "music",
 	"/media_browser/ajax/", "root",
@@ -31,12 +32,12 @@ class root(page):
 class music(page):
 	def GET(self):
 		return self.render("music")
-
-class abc_list(page):
+	
+class filter_list(page):
+	def GET(self, arg_str):
+		return self.render("list_iter", self.make_list(arg_str))
+	
 	def make_list(self, arg_str):
-		if(arg_str == ""):
-			return self.render("abc_list")
-
 		args = arg_str.split("+")
 
 		query = self.get_query()
@@ -44,58 +45,48 @@ class abc_list(page):
 		# Parse args builds up the query based off of the arguments
 		query = self.parse_args(query, args)
 		
-		query = query.execute()
-		
-		# Build rows is a generator takes a database result and formats it into 
-		# something ready to be shoved into the template
-		query_iter = self.build_rows(query.iterator())
-		
-		return query_iter
-
+		return query.iterators()
 
 	def parse_args(self, query, args):
+		# The args are a broken up list in the form:
+		# [ "field__field_arg=value", ... ]
 		while(len(args) > 0):
+			# These two bits break up the argument
 			q = args[0].split("=",1)
 			if(len(q)>1):
-				key, value = q
+				field, value = q
 			else:
-				key = q[0]
+				field = q[0]
 				value = ""
 			
-			q = key.split("__",1)
+			q = field.split("__",1)
 			if(len(q)>1):
-				key, key_arg = q
+				field, field_arg = q
 			else:
-				key = q[0]
-				key_arg = ""
-			
-			if(key == "paginate"):
+				field = q[0]
+				field_arg = ""
+				
+			# This is in the form "paginate=pagenum,itemsperpage"
+			if(field == "paginate"):
 				page, items = value.split(",")
-				query = query.paginate(page, items)
+				query = query.paginate(int(page), int(items))
 			
-			if(key in self.select_columns):
-				if(key_arg == "asc"):
-					query = query.order_by((key, "asc"))
-				if(key_arg == "desc"):
-					query = query.order_by((key, "desc"))
+			if(self.view.has_field(field)):
+				# If it is a matchable field
+				
+				if(field_arg == "asc" or field_arg == "desc"):
+					query = query.order_by((field, field_arg))
 			
-				if(key_arg == "" or key_arg == "is"):
-					# This unwraps key value into the form .where(key = value)
-					query = query.where(**{key: value})
-				if(key_arg == "startswith"):
-					query = self.starts_with(query, key, value)
-				if(key_arg == "regexp"):
-					query = self.regexp(query, key, value)
+				if(field_arg == "" or field_arg == "is"):
+					query = query.where(**{field: value})
+				if(field_arg == "startswith"):
+					query = self.starts_with(query, field, value)
+				if(field_arg == "regexp"):
+					query = self.regexp(query, field, value)
 				
 			args = args[1:]
 		return query
-
-	def build_rows(self,query_iter):
-		# These items are shoved into a ','.join() later
-		for result in query_iter:
-			# This is an iterator that looks each column up in the result and returns the value
-			yield (getattr(result,column) for column in self.display_columns)
-
+		
 	def starts_with(self, query, field, arg):
 		if(arg == "?"):
 			return self.regexp(query, field, "^[^0-9A-Za-z]'")
@@ -105,30 +96,83 @@ class abc_list(page):
 		return query.where(**{field + "__istartswith": arg})
 		
 	def regexp(self, query, field, reg):
-		return query.filter(R("%s REGEXP %s", field, reg))
-
-class artist(abc_list):
-	def __init__(self):
-		self.display_columns = ["name"]
-		self.select_columns = ["id","name","sortname"]
-	def get_query(self):
-		return db.Artist.select()
-
-class track(abc_list):
-	def __init__(self):
-		self.display_columns = ["title"]
-		print(self.get_query().sql())
-	
-	def GET(self,inp):
-		return ""
+		return query.filter(pw.R("%s REGEXP %s", field, reg))
 	
 	def get_query(self):
-		return db.Track.select().join(db.Artist)
+		return self.view.select_view()
 
-def mark_last(items): 
-	items = iter(items) 
-	last = items.next()
-	for item in items: 
-		yield False, last 
-		last = item
-	yield True, last
+# The view sugar allows an optimized iteration of the list
+class artist(filter_list):
+	class artist_view(db.View,db.Artist):pass
+	view = artist_view("id","name")
+	
+# Release results in a bunch of albums with their artists
+class release(filter_list):
+	display = ["albumid", "album", "artistid"]
+	fields = {
+		"album_id": {
+			"field_name": "id"
+		},
+		"album": {
+			"field_name": "title"
+		},
+		"artistid": {
+			"field_name": "id",
+			"model": db.Artist,
+		},
+		"artist": {
+			"field_name": "name",
+			"model": db.Artist,
+		},
+	}
+	model = db.Release
+	joins = staticmethod(lambda q: q.join(db.Artist))
+
+class track(filter_list):
+	display = ["trackid", "track", "artistid", "artist", "albumid", "album"]
+	fields = {
+		"trackid": {
+			"field_name": "id"
+		},
+		"track": {
+			"field_name": "title"
+		},
+		"artist": {
+			"field_name": "name",
+			"model": db.Artist,
+			"get": lambda row: row.artist
+		},
+		"artistid": {
+			"field_name": "id",
+			"model": db.Artist,
+		},
+		"album": {
+			"field_name": "title",
+			"model": db.Release,
+		},
+		"albumid": {
+			"field_name": "id",
+			"model": db.Release,
+		},
+	}
+	model = db.Track
+	joins = staticmethod(lambda q: q.join(db.Artist).switch(db.Track).join(db.ReleaseTrack).join(db.Release))
+
+if(__name__ == "__main__"):
+	import timeit
+
+	#o = artist()
+	
+	o = artist()
+	print(o.view.select_view().sql())
+
+	#render = web.template.frender('/var/apps/RamonaSt/ramonast/plugins/media_browser/templates/list_iter.json')
+	#query = ""
+	#stmt = "print(len(str(render(o.make_list(\"%s\")))))" % query
+
+	#num = 1
+	
+	#setup = "from __main__ import render, o"
+	# setup += ";gc.enable()"
+	
+	#print("#1 %s iterations: %s" % (num,timeit.Timer(stmt, setup).timeit(num)))

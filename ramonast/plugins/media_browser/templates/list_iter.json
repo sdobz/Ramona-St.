@@ -2,6 +2,6 @@ $def with (rows)
 {
 	"list":
 	[
-$',\n'.join(("[%s]" % (",".join(("'%s'" % col for col in row))) for row in rows))
+$',\n'.join(("[%s]" % (",".join(("'%s'" % field for field in row))) for row in rows))
 	]
 }

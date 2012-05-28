@@ -266,8 +266,8 @@ def LookupMusicBrainz(trackId):
 		releaserow.artist = artistrow
 		releaserow.save()
 	if(releasetrackrow):
-		releasetrackrow.releaseid = releaserow
-		releasetrackrow.trackid = trackrow
+		releasetrackrow.release = releaserow
+		releasetrackrow.track = trackrow
 		releasetrackrow.save()
 
 	print("    Done")

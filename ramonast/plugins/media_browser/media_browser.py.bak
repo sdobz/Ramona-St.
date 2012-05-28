@@ -1,0 +1,295 @@
+#!/usr/bin/env python
+
+if(__name__ == "__main__"):
+	import sys
+	sys.path.append("/var/apps/RamonaSt/ramonast")
+
+from page import page
+from plugin_manager import depends_on
+import database as db
+import library.web as web
+from peewee import R
+
+# depends_on(["theme"])
+
+urls = (
+	#"/media_browser/ajax/music/artist/songs_by/(.*)", "songs_by",
+	"/media_browser/ajax/music/artist/(.*)", "artist",
+	"/media_browser/ajax/music/album/(.*)", "release",
+	"/media_browser/ajax/music/song/(.*)", "track",
+	"/media_browser/ajax/music/", "music",
+	"/media_browser/ajax/", "root",
+	"/media_browser/(.*)", "index",
+)
+
+class index(page):
+	def GET(self,path):
+		if(path != ""):
+			raise web.seeother("/media_browser/#/"+path)
+		return self.render("index")
+		
+class root(page):
+	def GET(self):
+		return self.render("root")
+
+class music(page):
+	def GET(self):
+		return self.render("music")
+
+class filter_list(page):
+	returned_fields_cache = False
+	def GET(self, arg_str):
+		return self.render("list_iter", self.make_list(arg_str))
+	
+	def make_list(self, arg_str):
+		args = arg_str.split("+")
+
+		query = self.get_query()
+		
+		# Parse args builds up the query based off of the arguments
+		query = self.parse_args(query, args)
+		
+		query = query.execute()
+		
+		
+		# Build rows is a generator takes a database result and formats it into 
+		# something ready to be shoved into the template
+		query_iter = self.build_rows(query.iterator())
+		
+		return query_iter
+
+	def parse_args(self, query, args):
+		# The args are a broken up list in the form:
+		# [ "field__field_arg=value", ... ]
+		while(len(args) > 0):
+			# These two bits break up the argument
+			q = args[0].split("=",1)
+			if(len(q)>1):
+				field, value = q
+			else:
+				field = q[0]
+				value = ""
+			
+			q = field.split("__",1)
+			if(len(q)>1):
+				field, field_arg = q
+			else:
+				field = q[0]
+				field_arg = ""
+				
+			# This is in the form "paginate=pagenum,itemsperpage"
+			if(field == "paginate"):
+				page, items = value.split(",")
+				query = query.paginate(int(page), int(items))
+			
+			if(field in self.fields):
+				# If it is a matchable field
+				
+				if(field_arg == "asc" or field_arg == "desc"):
+					query = query.order_by((self.get_model(field), field, field_arg))
+			
+				if(field_arg == "" or field_arg == "is"):
+					query = self.where(query, field, value)
+				if(field_arg == "startswith"):
+					query = self.starts_with(query, field, value)
+				if(field_arg == "regexp"):
+					query = self.regexp(query, field, value)
+				
+			args = args[1:]
+		return query
+	
+	def where(self, query, field, value):
+		# Break up the field from the field arg
+		q = field.split("__",1)
+		if(len(q)>1):
+			field, field_arg = q
+		else:
+			field = q[0]
+			field_arg = False
+		
+		if(field in self.fields):
+			# Since some of the fields are accross joins the orm must be switched to the right model
+			query = query.switch(self.get_model(field))
+			
+			# Rejoin the fields
+			field = self.get_field_name(field)
+			if(field_arg):
+				field = field + "__" + field_arg
+				
+			# Since where expects the form .where(field = "value") the table dereference must be used
+			query = query.where(**{field: value})
+		
+		return query
+		
+	def starts_with(self, query, field, arg):
+		if(arg == "?"):
+			return self.regexp(query, field, "^[^0-9A-Za-z]'")
+		if(arg == "num"):
+			return self.regexp(query, field, "^[0-9]")
+			
+		return self.where(query, field + "__istartswith", arg)
+		
+	def regexp(self, query, field, reg):
+		return query.switch(self.get_model(field)).filter(R("%s REGEXP %s", self.get_field_name(field), reg))
+	
+	def get_model(self, field):
+		if("model" in self.fields[field]):
+			return self.fields[field]["model"]
+		return self.model
+	
+	def get_field_name(self, field):
+		if("field_name" in self.fields[field]):
+			return self.fields[field]["field_name"]
+		return field
+
+	def build_rows(self,query_iter):
+		# These items are shoved into a ','.join() later
+		# First show the column titles
+		yield self.returned_fields()
+		
+		for row in query_iter:
+			self.setup_row(row)
+			yield (self.extract_field(row,field) for field in self.returned_fields())
+	
+	# Some fields aren't gettable with getattr, so they will have a lambda expression
+	def extract_field(self, row, field):
+		if("get" in self.fields[field]):
+			return self.fields[field]["get"](row)
+		return getattr(row, field)
+		
+	def returned_fields(self):
+		for field in self.fields:
+			if("return" in self.fields[field] and self.fields[field]["return"]==False):
+				pass
+			else:
+				yield field
+	
+	def setup_row(self, row):
+		pass
+
+# The fields are another layer of abstraction on top of the one here.
+class artist(filter_list):
+	def __init__(self):
+		self.model = db.Artist
+		self.fields = {
+			"id": {},
+			"name": {
+				"get": lambda row: row.name + row.disambiguation
+			},
+			"sortname": {
+				"return": False
+			},
+		}
+	def get_query(self):
+		return self.model.select()
+		
+# Release results in a bunch of albums with their artists
+class release(filter_list):
+	def __init__(self):
+		self.model = db.Release
+		self.fields = {
+			"id": {},
+			"title": {},
+			"artist": {
+				"field_name": "name",
+				"model": db.Artist,
+				"get": lambda row: row.artist.name
+			},
+			"artist_id": {
+				"field_name": "id",
+				"model": db.Artist,
+				"get": lambda row: row.artist.id
+			}
+		}
+
+	def get_query(self):
+		return self.model.select().join(db.Artist)
+
+class track(filter_list):
+	def __init__(self):
+		self.model = db.Track
+		self.fields = {
+			"id": {},
+			"title": {},
+			"artist": {
+				"field_name": "name",
+				"model": db.Artist,
+				"get": lambda row: self.artist.name
+			},
+			"artist_id": {
+				"field_name": "id",
+				"model": db.Artist,
+				"get": lambda row: self.artist.id
+			},
+			"album": {
+				"field_name": "title",
+				"model": db.Release,
+				"get": lambda row: self.release.title
+			},
+			"album_id": {
+				"field_name": "id",
+				"model": db.Release,
+				"get": lambda row: self.release.id
+			},
+		}
+	
+	def setup_row(self,row):
+		self.artist = row.artist
+		self.release = row.releasetrack_set.get().release
+		
+	def get_query(self):
+		return db.Track.select().join(db.Artist).switch(db.Track).join(db.ReleaseTrack).join(db.Release)
+
+class track2(filter_list):
+	def __init__(self):
+		self.model = db.Track
+		self.fields = {
+			"id": {},
+			"title": {},
+			"artist": {
+				"field_name": "name",
+				"model": db.Artist,
+				"get": lambda row: row.artist_name
+			},
+			"artist_id": {
+				"field_name": "id",
+				"model": db.Artist,
+				"get": lambda row: row.artist_id
+			},
+			"album": {
+				"field_name": "title",
+				"model": db.Release,
+				"get": lambda row: row.release_title
+			},
+			"album_id": {
+				"field_name": "id",
+				"model": db.Release,
+				"get": lambda row: row.release_id
+			},
+		}
+		
+	def get_query(self):
+		return db.Track.select({
+			db.Track: ["id", "title"],
+			db.Artist: [("id", "artist_id"), ("name", "artist_name")],
+			db.Release: [("id", "release_id"), ("title", "release_title")]
+		}).join(db.Artist).switch(db.Track).join(db.ReleaseTrack).join(db.Release).naive()
+
+if(__name__ == "__main__"):
+	import timeit
+
+	o = track()
+	o2 = track2()
+	render = web.template.frender('/var/apps/RamonaSt/ramonast/plugins/media_browser/templates/list_iter.json')
+	query = "paginate=1,500"
+	stmt = "print(len(str(render(o.make_list(\"%s\")))))" % query
+	stmt2 = "print(len(str(render(o.make_list(\"%s\")))))" % query
+	num = 1
+	
+	setup = "from __main__ import render, o, o2"
+	# setup += ";gc.enable()"
+	
+	run = 2
+	print("#1 %s iterations: %s" % (num,timeit.Timer(stmt, setup).timeit(num)))
+	run = 1
+	print("#2 %s iterations: %s" % (num,timeit.Timer(stmt2, setup).timeit(num)))

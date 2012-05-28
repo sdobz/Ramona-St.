@@ -1,0 +1,88 @@
+from library.peewee import *
+
+class View:
+	fields = []
+	children = []
+	field_lookup = {}
+	def __init__(self, *args):
+		for arg in args:
+			if(isinstance(arg, basestring)):
+				# Strings get handled well
+				self.fields.append({
+					"model": self,
+					"field_name": arg,
+					"alias": self.__class__.__bases__[1].__name__ + "_" + arg,
+					"field_type": getattr(self, arg)
+				})
+			if(isinstance(arg, tuple)):
+				# Tuples let aliases
+				self.fields.append({
+					"model": self,
+					"field_name": arg[0],
+					"alias": arg[1],
+					"field_type": getattr(self, arg[0])
+				})
+			if(isinstance(arg, View)):
+				self.children.append(arg)
+			
+		# This will allow reverse lookups of the field on alias
+		for i, field in enumerate(self.get_field_data()):
+			self.field_lookup[field["alias"]] = i
+			
+	def select_view(self):
+		q = self.select(self.build_selection())
+		q = self.add_joins(q)
+		return q
+	
+	def build_selection(self):
+		# This will build the list of items to select from the database, see peewee naive documentation
+		selection = {}
+		for field in self.get_field_data():
+			model = field["model"]
+			if(model not in selection):
+				selection[model] = []
+			
+			selection[model].append((field["field_name"], field["alias"]))
+		
+		return selection
+	
+	def get_field_data(self):
+		# This will list all field contents
+		for field in self.fields:
+			yield field
+		
+		for child in self.children:
+			for field in child.get_field_data():
+				yield field
+	def get_fields(self):
+		# This will list all aliases
+		for field in self.get_field_data():
+			yield field["alias"]
+	
+	def add_joins(self,q):
+		# Recursively join all of the children
+		for child in self.children:
+			q = q.switch(self).join(child)
+			q = child.add_joins(q)
+		return q
+	
+	def build_model(self):
+		# This will be a model ready to accept the sql fields
+		class response: pass
+		for field in self.get_field_data():
+			setattr(response, field["alias"], field["field_type"])
+		
+		return response
+	
+	def iterators(self):
+		q = pw.RawQuery(self.build_model(),self.sql())
+		fields = self.get_fields()
+		yield fields
+		for row in q.execute():
+			yield (getattr(row,field) for field in fields)
+	
+	def has_field(self,field):
+		return field in self.field_lookup
+	
+	#def where(self,
+	#	query_separator

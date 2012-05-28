@@ -3,7 +3,9 @@
 # Utilities extend the classes listed here for interaction.
 # For example, scan.py will implement a load by filename method.
 
-import peewee as pw
+#import library.peewee as pw
+#from library.rs_pwv import View
+import library.rs_pwv as pw
 from config import *
 
 database = pw.MySQLDatabase(MySQLDatabase, user=MySQLUser, passwd=MySQLPassword)
@@ -80,3 +82,12 @@ class ReleaseTrack(BaseModel):
 	track = pw.ForeignKeyField(Track)
 	release = pw.ForeignKeyField(Release)
 	tracknumber = pw.IntegerField(size=2)
+
+class TrackView(pw.View):
+	track		= Track >> "title"
+	id 			= Track >> "id"
+	artist		= Track >> "artist" >> "name"
+	artist_id	= Track >> "artist" >> "id"
+	album		= ReleaseTrack << "release" << "title"
+
+#print(TrackView.build_query())
