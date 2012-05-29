@@ -8,13 +8,13 @@
 import library.rs_pwv as pw
 from config import *
 
-database = pw.MySQLDatabase(MySQLDatabase, user=MySQLUser, passwd=MySQLPassword)
-database.connect()
+#database = pw.MySQLDatabase(MySQLDatabase, user=MySQLUser, passwd=MySQLPassword)
+#database.connect()
 
 class BaseModel(pw.Model):
-	class Meta:
-		database = database
-
+#	class Meta:
+#		database = database
+	pass
 class Movie(BaseModel):
 	filename = pw.CharField(unique=True)
 	type = pw.IntegerField(size=2)
@@ -88,6 +88,7 @@ class TrackView(pw.View):
 	id 			= Track >> "id"
 	artist		= Track >> "artist" >> "name"
 	artist_id	= Track >> "artist" >> "id"
-	album		= ReleaseTrack << "release" << "title"
+	album		= Track >> ReleaseTrack.track << "release" >> "title"
+	album_id	= Track >> ReleaseTrack.track << "release" >> "id"
 
-#print(TrackView.build_query())
+
